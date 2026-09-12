@@ -159,6 +159,8 @@ class MTGOClient:
                         continue
 
                     title = h3_tag.text.strip()
+                    if title.startswith("Limited"):
+                        continue
                     event_url = urljoin(MTGO_ROOT_URL, a_tag.get("href", ""))
                     date_str = time_tag.get("datetime", "")
 

@@ -134,6 +134,11 @@ class MTGOSyncEngine:
         if not t.date:
             t.date = today
 
+        if t.name and t.name.startswith("Limited"):
+            logger.info("Skipping Limited event: %s", t.name)
+            stats["skipped"] += 1
+            return True
+
         safe_filename = sanitize_filename(t.json_file or "unknown.json")
         target_dir = os.path.join(
             self.cache_root,
