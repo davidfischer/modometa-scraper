@@ -18,22 +18,42 @@ from .scraper import load_failed_events
 from .scraper import save_failed_events
 
 
+class LevelFilter(logging.Filter):
+    """Filter to allow only records at or above a minimum log level."""
+
+    def __init__(self, min_level: int):
+        super().__init__()
+        self.min_level = min_level
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno >= self.min_level
+
+
 def setup_logging(verbose: bool = False, log_file: Optional[str] = None):
     if not log_file:
         log_file = datetime.now().strftime("scraper_%Y%m%d-%H%M%S.log")
 
-    level = logging.DEBUG if verbose else logging.INFO
+    file_level = logging.DEBUG if verbose else logging.INFO
+    console_level = logging.DEBUG if verbose else logging.WARNING
+
     log_format = "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"
     date_format = "%Y-%m-%d %H:%M:%S"
+    formatter = logging.Formatter(log_format, date_format)
 
-    handlers = [
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(log_file, encoding="utf-8"),
-    ]
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(console_level)
+    console_handler.addFilter(LevelFilter(console_level))
+    console_handler.setFormatter(formatter)
 
-    logging.basicConfig(
-        level=level, format=log_format, datefmt=date_format, handlers=handlers
-    )
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(file_level)
+    file_handler.setFormatter(formatter)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(min(file_level, console_level))
+    root_logger.handlers.clear()
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
 
 
 def parse_args():
@@ -147,7 +167,7 @@ def main():
             f"Loaded {len(tournaments_to_sync)} tournament(s) to retry from '{args.retry_failed}'."
         )
 
-    engine = MTGOSyncEngine(cache_root=args.cache_dir, request_delay=args.delay)
+    engine = MTGOSyncEngine(cache_root=args.cache_dir, delay=args.delay)
     stats = engine.sync(
         start_date=start_date,
         end_date=end_date,

@@ -1,5 +1,6 @@
 """Data models matching MTG_decklistcache format with PlayerCount extension."""
 
+import os
 from datetime import date
 from datetime import datetime
 from typing import List
@@ -24,6 +25,16 @@ class Tournament:
         self.json_file = json_file
         self.player_count = player_count
         self.failure_reason = failure_reason
+
+    @property
+    def event_id(self) -> str:
+        """Return the event identifier slug, falling back to name or unknown."""
+        if self.json_file:
+            return os.path.splitext(self.json_file)[0]
+        if self.uri:
+            clean_url = self.uri.split("?")[0].rstrip("/")
+            return os.path.splitext(os.path.basename(clean_url))[0]
+        return self.name or "unknown"
 
     def __repr__(self):
         reason = f", reason='{self.failure_reason}'" if self.failure_reason else ""

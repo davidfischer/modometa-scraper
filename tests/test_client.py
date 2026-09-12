@@ -159,19 +159,6 @@ def test_parse_event_no_decks_sets_last_error():
     assert client.last_error == "Tournament has no decks (event likely did not fire)"
 
 
-def test_fetch_event_data_with_request_delay(monkeypatch):
-    client = MTGOClient(request_delay=0.1)
-    mock_resp = MagicMock()
-    mock_resp.status_code = 404
-    client.session.get = MagicMock(return_value=mock_resp)
-
-    sleep_calls = []
-    monkeypatch.setattr("time.sleep", lambda s: sleep_calls.append(s))
-
-    client.fetch_event_data("https://www.mtgo.com/decklist/test")
-    assert sleep_calls == [0.1]
-
-
 def test_fetch_calendar_skips_limited_events():
     client = MTGOClient()
     mock_resp = MagicMock()

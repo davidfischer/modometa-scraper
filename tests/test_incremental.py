@@ -1,6 +1,7 @@
 import json
 from datetime import date
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
 from src.models import Tournament
 from src.scraper import MTGOSyncEngine
@@ -76,7 +77,10 @@ def test_deferred_retry_succeeds(tmp_path):
     )
 
     stats = engine.sync(
-        start_date=date(2026, 9, 1), end_date=date(2026, 9, 1), retry_delay=0
+        start_date=date(2026, 9, 1),
+        end_date=date(2026, 9, 1),
+        retry_delay=0,
+        delay=0,
     )
 
     assert stats["created"] == 1
@@ -105,7 +109,10 @@ def test_deferred_retry_fails_both(tmp_path):
     )
 
     stats = engine.sync(
-        start_date=date(2026, 9, 1), end_date=date(2026, 9, 1), retry_delay=0
+        start_date=date(2026, 9, 1),
+        end_date=date(2026, 9, 1),
+        retry_delay=0,
+        delay=0,
     )
 
     assert stats["created"] == 0
@@ -164,13 +171,44 @@ def test_sync_specified_tournaments(tmp_path):
         normalizer=mock_normalizer,
     )
 
-    stats = engine.sync(tournaments=[mock_tournament], retry_delay=0)
+    stats = engine.sync(tournaments=[mock_tournament], retry_delay=0, delay=0)
 
     assert stats["total_found"] == 1
     assert stats["created"] == 1
     assert stats["failed"] == 0
     # fetch_calendar should NOT have been called
     assert mock_client.fetch_calendar.call_count == 0
+
+
+def test_sync_tqdm_progress_updates(tmp_path):
+    mock_client = MagicMock()
+    mock_tournament = Tournament(
+        date=date(2026, 9, 1),
+        name="Targeted Challenge",
+        uri="https://www.mtgo.com/decklist/targeted-challenge-2026-09-01123",
+        formats="Modern",
+        json_file="targeted-challenge-2026-09-01123.json",
+    )
+    mock_client.fetch_event_data.return_value = {"decklists": [{"player": "P1"}]}
+    mock_item = MagicMock()
+    mock_item.to_dict.return_value = {"Tournament": {"Name": "Targeted Challenge"}}
+    mock_client.parse_event.return_value = mock_item
+
+    engine = MTGOSyncEngine(
+        cache_root=str(tmp_path),
+        client=mock_client,
+        normalizer=MagicMock(),
+    )
+
+    with patch("src.scraper.tqdm") as mock_tqdm:
+        mock_pbar = MagicMock()
+        mock_pbar.__iter__.return_value = [mock_tournament]
+        mock_tqdm.return_value = mock_pbar
+
+        engine.sync(tournaments=[mock_tournament], retry_delay=0, delay=0)
+
+        mock_tqdm.assert_called_once()
+        mock_pbar.set_postfix_str.assert_called_with("targeted-challenge-2026-09-01123")
 
 
 def test_sync_skips_limited_event(tmp_path):
@@ -224,3 +262,91 @@ def test_cli_parse_retry_args(monkeypatch):
     monkeypatch.setattr("sys.argv", ["main.py"])
     args_default = parse_args()
     assert args_default.delay == 0.1
+
+
+def test_sync_delay_applied_on_fetch_only(tmp_path, monkeypatch):
+    mock_client = MagicMock()
+    limited_t = Tournament(
+        date=date(2026, 9, 1),
+        name="Limited Prelim",
+        uri="https://www.mtgo.com/limited",
+        json_file="limited.json",
+    )
+    normal_t = Tournament(
+        date=date(2026, 9, 1),
+        name="Modern Prelim",
+        uri="https://www.mtgo.com/modern",
+        json_file="modern.json",
+    )
+    mock_client.fetch_event_data.return_value = {"decklists": [{"player": "P1"}]}
+    mock_item = MagicMock()
+    mock_item.to_dict.return_value = {"Tournament": {"Name": "Modern Prelim"}}
+    mock_client.parse_event.return_value = mock_item
+
+    sleep_calls = []
+    monkeypatch.setattr("time.sleep", lambda s: sleep_calls.append(s))
+
+    engine = MTGOSyncEngine(
+        cache_root=str(tmp_path),
+        client=mock_client,
+        delay=0.5,
+    )
+    stats = engine.sync(tournaments=[limited_t, normal_t], retry_delay=0)
+
+    assert stats["skipped"] == 1
+    assert stats["created"] == 1
+    assert sleep_calls == [0.5]
+
+
+def test_sync_tournament_return_statuses(tmp_path):
+    mock_client = MagicMock()
+    mock_normalizer = MagicMock()
+    engine = MTGOSyncEngine(
+        cache_root=str(tmp_path), client=mock_client, normalizer=mock_normalizer
+    )
+
+    # 1. Limited event -> skipped
+    limited_t = Tournament(
+        date=date(2026, 9, 1),
+        name="Limited Prelim",
+        json_file="limited.json",
+    )
+    res = engine._sync_tournament(
+        limited_t, force=False, lookback_days=2, today=date(2026, 9, 2)
+    )
+    assert res == "skipped"
+
+    # 2. Fetch failure -> failed
+    mock_client.fetch_event_data.return_value = None
+    fail_t = Tournament(
+        date=date(2026, 9, 1),
+        name="Pauper Prelim",
+        uri="https://www.mtgo.com/pauper",
+        json_file="pauper.json",
+    )
+    res = engine._sync_tournament(
+        fail_t, force=False, lookback_days=2, today=date(2026, 9, 2)
+    )
+    assert res == "failed"
+
+    # 3. Valid event -> created
+    mock_client.fetch_event_data.return_value = {
+        "decklists": [{"player": "P1"}],
+        "player_count": {"players": "8"},
+    }
+    mock_item = MagicMock()
+    mock_item.to_dict.return_value = {
+        "Tournament": {"Name": "Pauper Prelim", "PlayerCount": 8},
+        "Decks": [{"player": "P1"}],
+    }
+    mock_client.parse_event.return_value = mock_item
+    res = engine._sync_tournament(
+        fail_t, force=False, lookback_days=2, today=date(2026, 9, 2)
+    )
+    assert res == "created"
+
+    # 4. Same event when file already exists and unchanged -> skipped
+    res = engine._sync_tournament(
+        fail_t, force=False, lookback_days=2, today=date(2026, 9, 2)
+    )
+    assert res == "skipped"
