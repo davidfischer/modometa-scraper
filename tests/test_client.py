@@ -1,8 +1,10 @@
 import importlib
 from datetime import date
+from unittest.mock import MagicMock
 
 import src.config
 from src.client import MTGOClient
+from src.client import tournament_from_url
 from src.models import Tournament
 
 
@@ -113,3 +115,50 @@ def test_user_agent_from_environ(monkeypatch):
     # Reset
     monkeypatch.delenv("USER_AGENT", raising=False)
     importlib.reload(src.config)
+
+
+def test_tournament_from_url():
+    url = "https://www.mtgo.com/decklist/modern-challenge-64-2026-09-1012854060?query=1/"
+    t = tournament_from_url(url)
+    assert t.name == "Modern Challenge 64"
+    assert t.date == date(2026, 9, 10)
+    assert t.formats == "Modern"
+    assert t.json_file == "modern-challenge-64-2026-09-1012854060.json"
+    assert t.uri == url
+
+    duel_url = "https://www.mtgo.com/decklist/duel-commander-league-2026-09-0210931"
+    t_duel = tournament_from_url(duel_url)
+    assert t_duel.formats == "Commander"
+
+
+def test_fetch_event_data_404_no_retry():
+    client = MTGOClient(max_retries=3)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 404
+    client.session.get = MagicMock(return_value=mock_resp)
+
+    res = client.fetch_event_data("https://www.mtgo.com/decklist/missing-event")
+    assert res is None
+    assert client.session.get.call_count == 1  # Did not retry on 404!
+    assert client.last_error == "HTTP 404"
+
+
+def test_parse_event_no_decks_sets_last_error():
+    client = MTGOClient()
+    t = Tournament(name="Test", json_file="test.json")
+    res = client.parse_event(t, {"decklists": []})
+    assert res is None
+    assert client.last_error == "Tournament has no decks (event likely did not fire)"
+
+
+def test_fetch_event_data_with_request_delay(monkeypatch):
+    client = MTGOClient(request_delay=0.1)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 404
+    client.session.get = MagicMock(return_value=mock_resp)
+
+    sleep_calls = []
+    monkeypatch.setattr("time.sleep", lambda s: sleep_calls.append(s))
+
+    client.fetch_event_data("https://www.mtgo.com/decklist/test")
+    assert sleep_calls == [0.1]

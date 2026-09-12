@@ -18,6 +18,7 @@ from dateutil.parser import isoparse
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from .config import DEFAULT_REQUEST_DELAY
 from .config import MTGO_LIST_URL
 from .config import MTGO_ROOT_URL
 from .config import VALID_FORMATS
@@ -51,13 +52,56 @@ def parse_event_date(date_str: str) -> datetime:
     return dt
 
 
+def tournament_from_url(url: str) -> Tournament:
+    """Construct a Tournament instance from an MTGO event URL."""
+    clean_url = url.split("?")[0].rstrip("/")
+    slug = os.path.splitext(os.path.basename(clean_url))[0]
+    json_filename = f"{slug}.json"
+
+    date_match = re.search(r"(\d{4})-(\d{2})-(\d{2})", slug)
+    parsed_date = None
+    if date_match:
+        try:
+            parsed_date = date(
+                int(date_match.group(1)),
+                int(date_match.group(2)),
+                int(date_match.group(3)),
+            )
+        except ValueError:
+            pass
+
+    name_part = slug[: date_match.start()].rstrip("-_") if date_match else slug
+    title = " ".join(word.capitalize() for word in name_part.split("-")) if name_part else slug
+
+    base_fmt = title.split()[0] if title else ""
+    if base_fmt == "Duel":
+        fmt = "Commander"
+    elif base_fmt in VALID_FORMATS:
+        fmt = base_fmt
+    else:
+        fmt = None
+
+    return Tournament(
+        date=parsed_date,
+        name=title,
+        uri=url,
+        formats=fmt,
+        json_file=json_filename,
+    )
+
+
 class MTGOClient:
     def __init__(
-        self, session: Optional[requests.Session] = None, max_retries: int = 2
+        self,
+        session: Optional[requests.Session] = None,
+        max_retries: int = 2,
+        request_delay: float = DEFAULT_REQUEST_DELAY,
     ):
         self.session = session or requests.Session()
         self.session.headers.update({"User-Agent": get_user_agent()})
         self.max_retries = max_retries
+        self.request_delay = request_delay
+        self.last_error: Optional[str] = None
 
         retry_strategy = Retry(
             total=max_retries,
@@ -89,6 +133,8 @@ class MTGOClient:
             logger.info("Fetching calendar: %s", url)
 
             try:
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
                 resp = self.session.get(url, timeout=30)
                 if resp.status_code != 200:
                     logger.warning(
@@ -151,12 +197,20 @@ class MTGOClient:
         tournaments.sort(key=lambda t: (t.date, t.name))
         return tournaments
 
+    @staticmethod
+    def tournament_from_url(url: str) -> Tournament:
+        return tournament_from_url(url)
+
     def fetch_event_data(self, event_url: str) -> Optional[dict]:
         """Download MTGO event page and extract window.MTGO.decklists.data JSON."""
+        self.last_error = None
         for attempt in range(1, self.max_retries + 1):
             try:
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
                 resp = self.session.get(event_url, timeout=30)
                 if resp.status_code != 200:
+                    self.last_error = f"HTTP {resp.status_code}"
                     logger.warning(
                         "Event page returned HTTP %d for %s (attempt %d/%d)",
                         resp.status_code,
@@ -164,6 +218,8 @@ class MTGOClient:
                         attempt,
                         self.max_retries,
                     )
+                    if resp.status_code == 404:
+                        return None
                     if attempt < self.max_retries:
                         time.sleep(2 * attempt)
                         continue
@@ -183,16 +239,19 @@ class MTGOClient:
                                 len("window.MTGO.decklists.data = ") : -1
                             ]
                             return json.loads(raw_json)
+                    self.last_error = "No MTGO.decklists.data found on page"
                     logger.warning("No MTGO.decklists.data found on page %s", event_url)
                     return None
 
                 data = json.loads(match.group(1))
                 if data.get("errorCode") == "SERVER_ERROR":
+                    self.last_error = "Server error in MTGO event data"
                     logger.warning("Server error in MTGO event data for %s", event_url)
                     return None
 
                 return data
             except Exception as e:
+                self.last_error = f"Network error: {e}"
                 logger.warning(
                     "Error downloading event data for %s (attempt %d/%d): %s",
                     event_url,
@@ -219,6 +278,7 @@ class MTGOClient:
     ) -> Optional[CacheItem]:
         """Parse raw event JSON into a CacheItem with player count and normalized decks."""
         if not event_json:
+            self.last_error = "No event data"
             return None
 
         # Extract player count
@@ -228,7 +288,7 @@ class MTGOClient:
             if players_val is not None:
                 try:
                     tournament.player_count = int(players_val)
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     pass
 
         event_type = "tournament" if "starttime" in event_json else "league"
@@ -249,10 +309,12 @@ class MTGOClient:
         )
 
         if not decks:
+            self.last_error = "Tournament has no decks (event likely did not fire)"
             logger.info("Tournament %s has no decks, skipping", tournament.json_file)
             return None
 
         if all(len(d.mainboard) == 0 for d in decks):
+            self.last_error = "Tournament has only empty decks"
             logger.info(
                 "Tournament %s has only empty decks, skipping", tournament.json_file
             )

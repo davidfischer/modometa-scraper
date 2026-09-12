@@ -19,6 +19,7 @@ SCRYFALL_CACHE_TTL_HOURS = 24
 
 DEFAULT_LOOKBACK_DAYS = 2
 DEFAULT_CACHE_DIR = "Tournaments/MTGO"
+DEFAULT_REQUEST_DELAY = 0.1
 
 DEFAULT_USER_AGENT = (
     "modometa-scraper/1.0 (+https://github.com/davidfischer/modometa-scraper)"

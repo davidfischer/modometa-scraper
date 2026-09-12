@@ -15,6 +15,7 @@ class Tournament:
         formats: Optional[str] = None,
         json_file: Optional[str] = None,
         player_count: Optional[int] = None,
+        failure_reason: Optional[str] = None,
     ):
         self.date = date
         self.name = name
@@ -22,9 +23,11 @@ class Tournament:
         self.formats = formats
         self.json_file = json_file
         self.player_count = player_count
+        self.failure_reason = failure_reason
 
     def __repr__(self):
-        return f"Tournament({self.name}, {self.date}, players={self.player_count})"
+        reason = f", reason='{self.failure_reason}'" if self.failure_reason else ""
+        return f"Tournament({self.name}, {self.date}, players={self.player_count}{reason})"
 
     def __eq__(self, other):
         if not isinstance(other, Tournament):
@@ -47,6 +50,35 @@ class Tournament:
         if self.player_count is not None:
             data["PlayerCount"] = self.player_count
         return data
+
+    def to_failed_dict(self):
+        data = {
+            "date": self.date.isoformat() if self.date else None,
+            "name": self.name,
+            "uri": self.uri,
+            "formats": self.formats,
+            "json_file": self.json_file,
+        }
+        if self.failure_reason:
+            data["failure_reason"] = self.failure_reason
+        return data
+
+    @classmethod
+    def from_failed_dict(cls, data: dict) -> "Tournament":
+        parsed_date = None
+        if data.get("date"):
+            try:
+                parsed_date = date.fromisoformat(data["date"])
+            except ValueError:
+                parsed_date = None
+        return cls(
+            date=parsed_date,
+            name=data.get("name"),
+            uri=data.get("uri"),
+            formats=data.get("formats"),
+            json_file=data.get("json_file"),
+            failure_reason=data.get("failure_reason"),
+        )
 
 
 class DeckItem:

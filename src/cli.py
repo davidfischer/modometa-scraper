@@ -3,14 +3,19 @@
 import argparse
 import logging
 import sys
+from collections import Counter
 from datetime import datetime
 from typing import Optional
 
 from dateutil import parser as date_parser
 
+from .client import tournament_from_url
 from .config import DEFAULT_CACHE_DIR
 from .config import DEFAULT_LOOKBACK_DAYS
+from .config import DEFAULT_REQUEST_DELAY
 from .scraper import MTGOSyncEngine
+from .scraper import load_failed_events
+from .scraper import save_failed_events
 
 
 def setup_logging(verbose: bool = False, log_file: Optional[str] = None):
@@ -76,6 +81,32 @@ def parse_args():
         help="Exclude league tournaments from synchronization",
     )
     parser.add_argument(
+        "--url",
+        type=str,
+        action="append",
+        help="Direct MTGO tournament URL to sync (can be specified multiple times)",
+    )
+    parser.add_argument(
+        "--retry-failed",
+        type=str,
+        nargs="?",
+        const="failed_events.json",
+        default=None,
+        help="Retry tournaments from a failed events JSON file (defaults to failed_events.json if no path provided)",
+    )
+    parser.add_argument(
+        "--failed-file",
+        type=str,
+        default="failed_events.json",
+        help="Path to save failed tournaments JSON if any events fail",
+    )
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=DEFAULT_REQUEST_DELAY,
+        help="Delay in seconds between HTTP requests",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -97,7 +128,26 @@ def main():
     start_date = date_parser.parse(args.start_date).date() if args.start_date else None
     end_date = date_parser.parse(args.end_date).date() if args.end_date else None
 
-    engine = MTGOSyncEngine(cache_root=args.cache_dir)
+    tournaments_to_sync = None
+    if args.url:
+        tournaments_to_sync = [tournament_from_url(u) for u in args.url]
+    elif args.retry_failed:
+        try:
+            tournaments_to_sync = load_failed_events(args.retry_failed)
+        except Exception as e:
+            print(
+                f"Error loading failed events file '{args.retry_failed}': {e}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if not tournaments_to_sync:
+            print(f"No tournaments found to retry in '{args.retry_failed}'.")
+            sys.exit(0)
+        print(
+            f"Loaded {len(tournaments_to_sync)} tournament(s) to retry from '{args.retry_failed}'."
+        )
+
+    engine = MTGOSyncEngine(cache_root=args.cache_dir, request_delay=args.delay)
     stats = engine.sync(
         start_date=start_date,
         end_date=end_date,
@@ -105,6 +155,7 @@ def main():
         lookback_days=args.lookback_days,
         force=args.force,
         skip_leagues=args.skip_leagues,
+        tournaments=tournaments_to_sync,
     )
 
     print("\n--- Sync Summary ---")
@@ -114,11 +165,31 @@ def main():
     print(f"Skipped:     {stats['skipped']}")
     print(f"Failed:      {stats['failed']}")
 
-    if stats.get("failed_events"):
-        print("\n--- Failed Events ---")
-        for t in stats["failed_events"]:
+    failed_events = stats.get("failed_events", [])
+    if failed_events:
+        save_failed_events(failed_events, args.failed_file)
+        print(f"\nSaved {len(failed_events)} failed event(s) to: {args.failed_file}")
+        print(
+            f"To retry these events, run: python main.py --retry-failed {args.failed_file}"
+        )
+
+        reasons = Counter(t.failure_reason or "Unknown reason" for t in failed_events)
+        print("\nFailure breakdown by reason:")
+        for reason, count in reasons.most_common():
+            print(f"  - {reason}: {count}")
+
+        print("\n--- Failed Events Preview ---")
+        preview_limit = min(len(failed_events), 10)
+        for t in failed_events[:preview_limit]:
             date_str = f"[{t.date}] " if t.date else ""
-            print(f"- {date_str}{t.name}: {t.uri}")
+            reason_str = f" ({t.failure_reason})" if t.failure_reason else ""
+            print(f"- {date_str}{t.name}: {t.uri}{reason_str}")
+        if len(failed_events) > preview_limit:
+            print(
+                f"... and {len(failed_events) - preview_limit} more (see {args.failed_file})"
+            )
+    elif args.retry_failed:
+        print("\nAll retried tournaments succeeded!")
 
 
 if __name__ == "__main__":

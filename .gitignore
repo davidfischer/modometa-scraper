@@ -10,3 +10,5 @@ venv/
 temp/
 test_cache/
 *.log
+failed_events*.json
+failed_urls*.txt

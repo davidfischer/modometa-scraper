@@ -69,3 +69,31 @@ def test_standing_serialization():
     assert d["Rank"] == 1
     assert d["Player"] == "Alice"
     assert d["OMWP"] == 0.6543
+
+
+def test_tournament_failed_dict_roundtrip():
+    t = Tournament(
+        date=date(2026, 9, 10),
+        name="Modern Challenge 64",
+        uri="https://www.mtgo.com/decklist/modern-challenge-64-2026-09-1012854060",
+        formats="Modern",
+        json_file="modern-challenge-64-2026-09-1012854060.json",
+        failure_reason="HTTP 404",
+    )
+    failed_dict = t.to_failed_dict()
+    assert failed_dict == {
+        "date": "2026-09-10",
+        "name": "Modern Challenge 64",
+        "uri": "https://www.mtgo.com/decklist/modern-challenge-64-2026-09-1012854060",
+        "formats": "Modern",
+        "json_file": "modern-challenge-64-2026-09-1012854060.json",
+        "failure_reason": "HTTP 404",
+    }
+    reconstituted = Tournament.from_failed_dict(failed_dict)
+    assert reconstituted.date == t.date
+    assert reconstituted.name == t.name
+    assert reconstituted.uri == t.uri
+    assert reconstituted.formats == t.formats
+    assert reconstituted.json_file == t.json_file
+    assert reconstituted.failure_reason == "HTTP 404"
+    assert repr(reconstituted) == "Tournament(Modern Challenge 64, 2026-09-10, players=None, reason='HTTP 404')"
