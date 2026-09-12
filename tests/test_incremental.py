@@ -173,6 +173,24 @@ def test_sync_specified_tournaments(tmp_path):
     assert mock_client.fetch_calendar.call_count == 0
 
 
+def test_sync_skips_limited_event(tmp_path):
+    mock_client = MagicMock()
+    limited_tournament = Tournament(
+        date=date(2026, 9, 10),
+        name="Limited Super Qualifier",
+        uri="https://www.mtgo.com/decklist/limited-super-qualifier-2024-06-0912645816",
+        formats=None,
+        json_file="limited-super-qualifier-2024-06-0912645816.json",
+    )
+    engine = MTGOSyncEngine(cache_root=str(tmp_path), client=mock_client)
+    stats = engine.sync(tournaments=[limited_tournament])
+
+    assert stats["skipped"] == 1
+    assert stats["created"] == 0
+    assert stats["failed"] == 0
+    assert mock_client.fetch_event_data.call_count == 0
+
+
 def test_cli_parse_retry_args(monkeypatch):
     from src.cli import parse_args
 

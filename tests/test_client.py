@@ -132,6 +132,12 @@ def test_tournament_from_url():
     t_duel = tournament_from_url(duel_url)
     assert t_duel.formats == "Commander"
 
+    premodern_url = (
+        "https://www.mtgo.com/decklist/premodern-challenge-32-2026-09-1012854063"
+    )
+    t_premodern = tournament_from_url(premodern_url)
+    assert t_premodern.formats == "Premodern"
+
 
 def test_fetch_event_data_404_no_retry():
     client = MTGOClient(max_retries=3)
@@ -164,3 +170,41 @@ def test_fetch_event_data_with_request_delay(monkeypatch):
 
     client.fetch_event_data("https://www.mtgo.com/decklist/test")
     assert sleep_calls == [0.1]
+
+
+def test_fetch_calendar_skips_limited_events():
+    client = MTGOClient()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.text = """
+    <html>
+      <body>
+        <li class="decklists-item">
+          <a href="/decklist/modern-challenge-64-2026-09-1012854060">
+            <div><h3>Modern Challenge 64</h3></div>
+            <time datetime="2026-09-10T13:00:00.000Z"></time>
+          </a>
+        </li>
+        <li class="decklists-item">
+          <a href="/decklist/limited-super-qualifier-2026-09-1012645816">
+            <div><h3>Limited Super Qualifier</h3></div>
+            <time datetime="2026-09-10T14:05:00.000Z"></time>
+          </a>
+        </li>
+        <li class="decklists-item">
+          <a href="/decklist/premodern-challenge-32-2026-09-1012854063">
+            <div><h3>Premodern Challenge 32</h3></div>
+            <time datetime="2026-09-10T17:00:00.000Z"></time>
+          </a>
+        </li>
+      </body>
+    </html>
+    """
+    client.session.get = MagicMock(return_value=mock_resp)
+
+    tournaments = client.fetch_calendar(date(2026, 9, 1), date(2026, 9, 30))
+    assert len(tournaments) == 2
+    assert tournaments[0].name == "Modern Challenge 64"
+    assert tournaments[0].formats == "Modern"
+    assert tournaments[1].name == "Premodern Challenge 32"
+    assert tournaments[1].formats == "Premodern"

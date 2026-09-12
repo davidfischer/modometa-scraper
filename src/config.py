@@ -12,6 +12,7 @@ VALID_FORMATS = [
     "Vintage",
     "Pauper",
     "Commander",
+    "Premodern",
 ]
 
 SCRYFALL_BULK_URL = "https://api.scryfall.com/bulk-data"
