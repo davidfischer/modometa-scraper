@@ -71,7 +71,11 @@ def tournament_from_url(url: str) -> Tournament:
             pass
 
     name_part = slug[: date_match.start()].rstrip("-_") if date_match else slug
-    title = " ".join(word.capitalize() for word in name_part.split("-")) if name_part else slug
+    title = (
+        " ".join(word.capitalize() for word in name_part.split("-"))
+        if name_part
+        else slug
+    )
 
     base_fmt = title.split()[0] if title else ""
     if base_fmt == "Duel":
@@ -288,7 +292,7 @@ class MTGOClient:
             if players_val is not None:
                 try:
                     tournament.player_count = int(players_val)
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
 
         event_type = "tournament" if "starttime" in event_json else "league"

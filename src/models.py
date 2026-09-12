@@ -27,7 +27,9 @@ class Tournament:
 
     def __repr__(self):
         reason = f", reason='{self.failure_reason}'" if self.failure_reason else ""
-        return f"Tournament({self.name}, {self.date}, players={self.player_count}{reason})"
+        return (
+            f"Tournament({self.name}, {self.date}, players={self.player_count}{reason})"
+        )
 
     def __eq__(self, other):
         if not isinstance(other, Tournament):

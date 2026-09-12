@@ -118,7 +118,9 @@ def test_user_agent_from_environ(monkeypatch):
 
 
 def test_tournament_from_url():
-    url = "https://www.mtgo.com/decklist/modern-challenge-64-2026-09-1012854060?query=1/"
+    url = (
+        "https://www.mtgo.com/decklist/modern-challenge-64-2026-09-1012854060?query=1/"
+    )
     t = tournament_from_url(url)
     assert t.name == "Modern Challenge 64"
     assert t.date == date(2026, 9, 10)

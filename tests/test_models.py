@@ -96,4 +96,7 @@ def test_tournament_failed_dict_roundtrip():
     assert reconstituted.formats == t.formats
     assert reconstituted.json_file == t.json_file
     assert reconstituted.failure_reason == "HTTP 404"
-    assert repr(reconstituted) == "Tournament(Modern Challenge 64, 2026-09-10, players=None, reason='HTTP 404')"
+    assert (
+        repr(reconstituted)
+        == "Tournament(Modern Challenge 64, 2026-09-10, players=None, reason='HTTP 404')"
+    )
