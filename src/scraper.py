@@ -11,8 +11,12 @@ from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
 from typing import List
+from typing import Literal
 from typing import Optional
 from typing import Tuple
+
+from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 
 from .client import MTGOClient
 from .client import tournament_from_url
@@ -70,13 +74,13 @@ class MTGOSyncEngine:
         scryfall_cache_dir: str = ".cache",
         normalizer: Optional[ScryfallNormalizer] = None,
         client: Optional[MTGOClient] = None,
-        request_delay: float = DEFAULT_REQUEST_DELAY,
+        delay: float = DEFAULT_REQUEST_DELAY,
+        request_delay: Optional[float] = None,
     ):
         self.cache_root = os.path.abspath(cache_root)
         self.scryfall_cache_dir = scryfall_cache_dir
-        self.client = client or MTGOClient(request_delay=request_delay)
-        if client and hasattr(self.client, "request_delay"):
-            self.client.request_delay = request_delay
+        self.client = client or MTGOClient()
+        self.delay = request_delay if request_delay is not None else delay
 
         # Lazily loaded
         # This checks and updates the Scryfall cache if necessary
@@ -128,16 +132,14 @@ class MTGOSyncEngine:
         force: bool,
         lookback_days: int,
         today: date,
-        stats: dict,
-    ) -> bool:
+    ) -> Literal["created", "updated", "skipped", "failed"]:
         # Fallback date if missing
         if not t.date:
             t.date = today
 
         if t.name and t.name.startswith("Limited"):
             logger.info("Skipping Limited event: %s", t.name)
-            stats["skipped"] += 1
-            return True
+            return "skipped"
 
         safe_filename = sanitize_filename(t.json_file or "unknown.json")
         target_dir = os.path.join(
@@ -172,8 +174,7 @@ class MTGOSyncEngine:
                 else None
             )
             if cached_pc is not None:
-                stats["skipped"] += 1
-                return True
+                return "skipped"
 
         logger.info("Checking tournament: %s (%s)", t.name, t.uri)
         raw_event = self.client.fetch_event_data(t.uri)
@@ -185,7 +186,7 @@ class MTGOSyncEngine:
             logger.warning(
                 "Failed to fetch event data for %s: %s", t.uri, t.failure_reason
             )
-            return False
+            return "failed"
 
         # Compare with cache if file exists
         if file_exists and not force and cached_data:
@@ -207,8 +208,7 @@ class MTGOSyncEngine:
                     remote_decks,
                     remote_pc,
                 )
-                stats["skipped"] += 1
-                return True
+                return "skipped"
             else:
                 logger.info(
                     "Update detected for %s: decks (%d -> %d), player_count (%s -> %s)",
@@ -231,18 +231,16 @@ class MTGOSyncEngine:
                 safe_filename,
                 t.failure_reason,
             )
-            return False
+            return "failed"
 
         atomic_write_json(target_path, item.to_dict())
         t.failure_reason = None
         if file_exists:
-            stats["updated"] += 1
             logger.info("Updated: %s", target_path)
+            return "updated"
         else:
-            stats["created"] += 1
             logger.info("Created: %s", target_path)
-
-        return True
+            return "created"
 
     def sync(
         self,
@@ -254,8 +252,11 @@ class MTGOSyncEngine:
         skip_leagues: bool = False,
         retry_delay: int = 5,
         tournaments: Optional[List[Tournament]] = None,
+        disable_progress: bool = False,
+        delay: Optional[float] = None,
     ) -> dict:
         """Run synchronization across the resolved date range (or given tournaments) with deferred retry."""
+        effective_delay = self.delay if delay is None else delay
         if tournaments is None:
             start, end = self.resolve_date_range(
                 start_date, end_date, auto_resume, lookback_days
@@ -279,34 +280,59 @@ class MTGOSyncEngine:
         today = datetime.now(timezone.utc).date()
         deferred_retries = []
 
-        for t in tournaments:
-            success = self._sync_tournament(t, force, lookback_days, today, stats)
-            if not success:
-                logger.warning(
-                    "Queueing %s (%s) for deferred retry at end of run",
-                    t.name,
-                    t.json_file,
-                )
-                deferred_retries.append(t)
-
-        if deferred_retries:
-            logger.info(
-                "Starting deferred retry pass for %d failed event(s)...",
-                len(deferred_retries),
+        with logging_redirect_tqdm():
+            pbar = tqdm(
+                tournaments,
+                desc="Syncing events",
+                unit="event",
+                disable=disable_progress,
             )
-            if retry_delay > 0:
-                time.sleep(retry_delay)
-            for t in deferred_retries:
-                logger.info("Deferred retry: %s (%s)", t.name, t.json_file)
-                success = self._sync_tournament(t, force, lookback_days, today, stats)
-                if not success:
-                    logger.error(
-                        "Deferred retry also failed for %s (%s). Marking as failed.",
+            for t in pbar:
+                pbar.set_postfix_str(t.event_id)
+                result = self._sync_tournament(t, force, lookback_days, today)
+                if result == "failed":
+                    logger.warning(
+                        "Queueing %s (%s) for deferred retry at end of run",
                         t.name,
                         t.json_file,
                     )
-                    stats["failed"] += 1
-                    stats["failed_events"].append(t)
+                    deferred_retries.append(t)
+                else:
+                    stats[result] += 1
+
+                if result != "skipped" and effective_delay > 0:
+                    time.sleep(effective_delay)
+
+            if deferred_retries:
+                logger.info(
+                    "Starting deferred retry pass for %d failed event(s)...",
+                    len(deferred_retries),
+                )
+                if retry_delay > 0:
+                    time.sleep(retry_delay)
+                retry_pbar = tqdm(
+                    deferred_retries,
+                    desc="Retrying failed events",
+                    unit="event",
+                    disable=disable_progress,
+                )
+                for t in retry_pbar:
+                    retry_pbar.set_postfix_str(t.event_id)
+                    logger.info("Deferred retry: %s (%s)", t.name, t.json_file)
+                    result = self._sync_tournament(t, force, lookback_days, today)
+                    if result == "failed":
+                        logger.error(
+                            "Deferred retry also failed for %s (%s). Marking as failed.",
+                            t.name,
+                            t.json_file,
+                        )
+                        stats["failed"] += 1
+                        stats["failed_events"].append(t)
+                    else:
+                        stats[result] += 1
+
+                    if result != "skipped" and effective_delay > 0:
+                        time.sleep(effective_delay)
 
         logger.info("Sync complete! Stats: %s", stats)
         return stats

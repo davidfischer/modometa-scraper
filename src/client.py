@@ -18,7 +18,6 @@ from dateutil.parser import isoparse
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from .config import DEFAULT_REQUEST_DELAY
 from .config import MTGO_LIST_URL
 from .config import MTGO_ROOT_URL
 from .config import VALID_FORMATS
@@ -99,12 +98,10 @@ class MTGOClient:
         self,
         session: Optional[requests.Session] = None,
         max_retries: int = 2,
-        request_delay: float = DEFAULT_REQUEST_DELAY,
     ):
         self.session = session or requests.Session()
         self.session.headers.update({"User-Agent": get_user_agent()})
         self.max_retries = max_retries
-        self.request_delay = request_delay
         self.last_error: Optional[str] = None
 
         retry_strategy = Retry(
@@ -137,8 +134,6 @@ class MTGOClient:
             logger.info("Fetching calendar: %s", url)
 
             try:
-                if self.request_delay > 0:
-                    time.sleep(self.request_delay)
                 resp = self.session.get(url, timeout=30)
                 if resp.status_code != 200:
                     logger.warning(
@@ -212,8 +207,6 @@ class MTGOClient:
         self.last_error = None
         for attempt in range(1, self.max_retries + 1):
             try:
-                if self.request_delay > 0:
-                    time.sleep(self.request_delay)
                 resp = self.session.get(event_url, timeout=30)
                 if resp.status_code != 200:
                     self.last_error = f"HTTP {resp.status_code}"

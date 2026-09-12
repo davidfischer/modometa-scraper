@@ -100,3 +100,19 @@ def test_tournament_failed_dict_roundtrip():
         repr(reconstituted)
         == "Tournament(Modern Challenge 64, 2026-09-10, players=None, reason='HTTP 404')"
     )
+
+
+def test_tournament_event_id():
+    t1 = Tournament(json_file="standard-league-2024-07-258335.json")
+    assert t1.event_id == "standard-league-2024-07-258335"
+
+    t2 = Tournament(
+        uri="https://www.mtgo.com/decklist/modern-challenge-64-2026-09-1012854060"
+    )
+    assert t2.event_id == "modern-challenge-64-2026-09-1012854060"
+
+    t3 = Tournament(name="Pauper League")
+    assert t3.event_id == "Pauper League"
+
+    t4 = Tournament()
+    assert t4.event_id == "unknown"
