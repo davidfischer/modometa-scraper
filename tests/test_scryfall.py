@@ -57,3 +57,38 @@ def test_scryfall_normalizer_warning_on_unrecognized(tmp_path, caplog):
         result = normalizer.normalize("Fake Card Name 12345")
         assert result == "Fake Card Name 12345"
         assert "Fake Card Name 12345" in caplog.text
+
+
+def test_scryfall_normalizer_ratonhnhaketon(tmp_path, caplog):
+    cache_dir = tmp_path / ".cache"
+    cache_file = cache_dir / "scryfall_names.json"
+    cache_dir.mkdir(parents=True)
+
+    payload = {
+        "mappings": {},
+        "canonical": ["Ratonhnhaké\ua789ton", "Circle of Protection: Black"],
+    }
+    with open(cache_file, "w", encoding="utf-8") as f:
+        json.dump(payload, f)
+
+    normalizer = ScryfallNormalizer(cache_dir=str(cache_dir))
+
+    with caplog.at_level(logging.WARNING):
+        # Ratonhnhaké:ton with ASCII colon should normalize to modifier letter colon U+A789
+        assert normalizer.normalize("Ratonhnhaké:ton") == "Ratonhnhaké\ua789ton"
+        assert "not recognized" not in caplog.text
+
+        # Unaccented variation
+        assert normalizer.normalize("Ratonhnhake:ton") == "Ratonhnhaké\ua789ton"
+        assert "not recognized" not in caplog.text
+
+        # Already canonical form with U+A789
+        assert normalizer.normalize("Ratonhnhaké\ua789ton") == "Ratonhnhaké\ua789ton"
+        assert "not recognized" not in caplog.text
+
+        # Regular colon card should remain unchanged and recognized
+        assert (
+            normalizer.normalize("Circle of Protection: Black")
+            == "Circle of Protection: Black"
+        )
+        assert "not recognized" not in caplog.text

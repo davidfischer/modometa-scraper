@@ -31,7 +31,11 @@ STATIC_CORRECTIONS = {
     "Jotun Grunt": "Jötun Grunt",
     "Sol'kanar the Tainted": "Sol'Kanar the Tainted",
     "Furnace Of Rath": "Furnace of Rath",
+    "Lim-Dul's Vault": "Lim-Dûl's Vault",
     "Lim-Dûl's Vault": "Lim-Dûl's Vault",
+    # Ratonhnhaké꞉ton uses modifier letter colon (U+A789) in Scryfall, but ASCII colon in MTGO
+    "Ratonhnhaké:ton": "Ratonhnhaké꞉ton",
+    "Ratonhnhake:ton": "Ratonhnhaké꞉ton",
 }
 
 ALCHEMY_PREFIX = "A-"
@@ -74,6 +78,8 @@ class ScryfallNormalizer:
             else:
                 self._mappings = data
                 self._canonical_names = set()
+            self._mappings.update(STATIC_CORRECTIONS)
+            self._canonical_names.update(STATIC_CORRECTIONS.values())
             logger.info(
                 "Loaded %d card mappings and %d canonical names from cache (%s)",
                 len(self._mappings),
