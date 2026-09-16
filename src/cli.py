@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import os
 import sys
 from collections import Counter
 from datetime import datetime
@@ -118,7 +119,7 @@ def parse_args():
         "--failed-file",
         type=str,
         default="failed_events.json",
-        help="Path to save failed tournaments JSON if any events fail",
+        help="Path to save failed tournaments JSON if any events fail (a datestamped copy is also saved)",
     )
     parser.add_argument(
         "--delay",
@@ -143,7 +144,9 @@ def parse_args():
 
 def main():
     args = parse_args()
-    setup_logging(args.verbose, args.log_file)
+    run_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    log_file = args.log_file or f"scraper_{run_timestamp}.log"
+    setup_logging(args.verbose, log_file)
 
     start_date = date_parser.parse(args.start_date).date() if args.start_date else None
     end_date = date_parser.parse(args.end_date).date() if args.end_date else None
@@ -187,11 +190,28 @@ def main():
 
     failed_events = stats.get("failed_events", [])
     if failed_events:
-        save_failed_events(failed_events, args.failed_file)
-        print(f"\nSaved {len(failed_events)} failed event(s) to: {args.failed_file}")
-        print(
-            f"To retry these events, run: python main.py --retry-failed {args.failed_file}"
+        failed_dir = os.path.dirname(args.failed_file)
+        timestamped_file = (
+            os.path.join(failed_dir, f"failed_events_{run_timestamp}.json")
+            if failed_dir
+            else f"failed_events_{run_timestamp}.json"
         )
+        save_failed_events(failed_events, timestamped_file)
+        if args.failed_file and args.failed_file != timestamped_file:
+            save_failed_events(failed_events, args.failed_file)
+            print(
+                f"\nSaved {len(failed_events)} failed event(s) to: {args.failed_file} and {timestamped_file}"
+            )
+            print(
+                f"To retry these events, run: python main.py --retry-failed {args.failed_file}"
+            )
+        else:
+            print(
+                f"\nSaved {len(failed_events)} failed event(s) to: {timestamped_file}"
+            )
+            print(
+                f"To retry these events, run: python main.py --retry-failed {timestamped_file}"
+            )
 
         reasons = Counter(t.failure_reason or "Unknown reason" for t in failed_events)
         print("\nFailure breakdown by reason:")
@@ -210,6 +230,12 @@ def main():
             )
     elif args.retry_failed:
         print("\nAll retried tournaments succeeded!")
+
+    if stats.get("created", 0) == 0 and stats.get("updated", 0) == 0:
+        print(
+            "No tournaments processed or updated successfully. Exiting with non-zero status.",
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":

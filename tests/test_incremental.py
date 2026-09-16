@@ -229,6 +229,65 @@ def test_sync_skips_limited_event(tmp_path):
     assert mock_client.fetch_event_data.call_count == 0
 
 
+def test_sync_skips_contraption_event(tmp_path):
+    mock_client = MagicMock()
+    contraption_tournament = Tournament(
+        date=date(2026, 6, 8),
+        name="Contraption League",
+        uri="https://www.mtgo.com/decklist/contraption-league-2026-06-0810735",
+        formats=None,
+        json_file="contraption-league-2026-06-0810735.json",
+    )
+    # Also test case-insensitive lowercase slug name
+    contraption_slug_tournament = Tournament(
+        date=date(2026, 6, 8),
+        name="contraption-league-2026-06-0810735",
+        uri="https://www.mtgo.com/decklist/contraption-league-2026-06-0810735",
+        formats=None,
+        json_file="contraption-league-2026-06-0810735.json",
+    )
+    engine = MTGOSyncEngine(cache_root=str(tmp_path), client=mock_client)
+    stats = engine.sync(
+        tournaments=[contraption_tournament, contraption_slug_tournament]
+    )
+
+    assert stats["skipped"] == 2
+    assert stats["created"] == 0
+    assert stats["failed"] == 0
+    assert mock_client.fetch_event_data.call_count == 0
+
+
+def test_sync_does_not_skip_event_with_contraption_in_middle(tmp_path):
+    mock_client = MagicMock()
+    mock_client.fetch_event_data.return_value = {
+        "decklists": [{"player": "P1"}],
+        "player_count": {"players": "16"},
+    }
+    mock_item = MagicMock()
+    mock_item.to_dict.return_value = {
+        "Tournament": {
+            "Name": "Premodern Challenge 32   Contraption",
+            "PlayerCount": 16,
+        },
+        "Decks": [{"player": "P1"}],
+    }
+    mock_client.parse_event.return_value = mock_item
+
+    tournament = Tournament(
+        date=date(2025, 12, 30),
+        name="Premodern Challenge 32   Contraption",
+        uri="https://www.mtgo.com/decklist/premodern-challenge-32---contraption-2025-12-3012828126",
+        formats="Premodern",
+        json_file="premodern-challenge-32---contraption-2025-12-3012828126.json",
+    )
+    engine = MTGOSyncEngine(cache_root=str(tmp_path), client=mock_client)
+    stats = engine.sync(tournaments=[tournament])
+
+    assert stats["skipped"] == 0
+    assert stats["created"] == 1
+    assert mock_client.fetch_event_data.call_count == 1
+
+
 def test_cli_parse_retry_args(monkeypatch):
     from src.cli import parse_args
 

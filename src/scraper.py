@@ -22,6 +22,7 @@ from .client import MTGOClient
 from .client import tournament_from_url
 from .config import DEFAULT_LOOKBACK_DAYS
 from .config import DEFAULT_REQUEST_DELAY
+from .config import SKIP_FORMATS
 from .models import Tournament
 from .scryfall import ScryfallNormalizer
 
@@ -137,8 +138,10 @@ class MTGOSyncEngine:
         if not t.date:
             t.date = today
 
-        if t.name and t.name.startswith("Limited"):
-            logger.info("Skipping Limited event: %s", t.name)
+        if t.name and any(
+            t.name.lower().startswith(skip.lower()) for skip in SKIP_FORMATS
+        ):
+            logger.info("Skipping ignored format event: %s", t.name)
             return "skipped"
 
         safe_filename = sanitize_filename(t.json_file or "unknown.json")
@@ -183,8 +186,9 @@ class MTGOSyncEngine:
             if not isinstance(reason, str):
                 reason = "Failed to fetch event data"
             t.failure_reason = reason
+            # Intentional space here to make copying URLs from logs easier
             logger.warning(
-                "Failed to fetch event data for %s: %s", t.uri, t.failure_reason
+                "Failed to fetch event data for %s (%s)", t.uri, t.failure_reason
             )
             return "failed"
 
