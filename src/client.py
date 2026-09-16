@@ -20,6 +20,7 @@ from urllib3.util.retry import Retry
 
 from .config import MTGO_LIST_URL
 from .config import MTGO_ROOT_URL
+from .config import SKIP_FORMATS
 from .config import VALID_FORMATS
 from .config import get_user_agent
 from .models import CacheItem
@@ -154,7 +155,9 @@ class MTGOClient:
                         continue
 
                     title = h3_tag.text.strip()
-                    if title.startswith("Limited"):
+                    if any(
+                        title.lower().startswith(skip.lower()) for skip in SKIP_FORMATS
+                    ):
                         continue
                     event_url = urljoin(MTGO_ROOT_URL, a_tag.get("href", ""))
                     date_str = time_tag.get("datetime", "")

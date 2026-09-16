@@ -15,6 +15,14 @@ VALID_FORMATS = [
     "Premodern",
 ]
 
+# Skip any formats where the name starts with this.
+# eg. skip "contraption-league-2026-06-0810735"
+#     but not "premodern-challenge-32---contraption-2025-12-3012828126"
+SKIP_FORMATS = [
+    "Contraption",
+    "Limited",
+]
+
 SCRYFALL_BULK_URL = "https://api.scryfall.com/bulk-data"
 SCRYFALL_CACHE_TTL_HOURS = 24
 

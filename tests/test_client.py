@@ -138,6 +138,16 @@ def test_tournament_from_url():
     t_premodern = tournament_from_url(premodern_url)
     assert t_premodern.formats == "Premodern"
 
+    contraption_url = "https://www.mtgo.com/decklist/contraption-league-2026-06-0810735"
+    t_contraption = tournament_from_url(contraption_url)
+    assert t_contraption.name == "Contraption League"
+    assert t_contraption.formats is None
+
+    premodern_contraption_url = "https://www.mtgo.com/decklist/premodern-challenge-32---contraption-2025-12-3012828126"
+    t_premodern_contraption = tournament_from_url(premodern_contraption_url)
+    assert t_premodern_contraption.name == "Premodern Challenge 32   Contraption"
+    assert t_premodern_contraption.formats == "Premodern"
+
 
 def test_fetch_event_data_404_no_retry():
     client = MTGOClient(max_retries=3)
@@ -159,7 +169,7 @@ def test_parse_event_no_decks_sets_last_error():
     assert client.last_error == "Tournament has no decks (event likely did not fire)"
 
 
-def test_fetch_calendar_skips_limited_events():
+def test_fetch_calendar_skips_configured_skip_formats():
     client = MTGOClient()
     mock_resp = MagicMock()
     mock_resp.status_code = 200
@@ -176,6 +186,12 @@ def test_fetch_calendar_skips_limited_events():
           <a href="/decklist/limited-super-qualifier-2026-09-1012645816">
             <div><h3>Limited Super Qualifier</h3></div>
             <time datetime="2026-09-10T14:05:00.000Z"></time>
+          </a>
+        </li>
+        <li class="decklists-item">
+          <a href="/decklist/contraption-league-2026-06-0810735">
+            <div><h3>Contraption League</h3></div>
+            <time datetime="2026-06-08T10:00:00.000Z"></time>
           </a>
         </li>
         <li class="decklists-item">
