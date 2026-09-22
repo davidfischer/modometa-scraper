@@ -33,6 +33,15 @@ class DeckNormalizer:
 
 class OrderNormalizer:
     @staticmethod
+    def format_place(position: int) -> str:
+        """Format an integer rank into an ordinal place string (e.g. 1st Place, 32nd Place)."""
+        if 11 <= (position % 100) <= 13:
+            suffix = "th"
+        else:
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(position % 10, "th")
+        return f"{position}{suffix} Place"
+
+    @staticmethod
     def reorder_decks(
         decks: List[Deck],
         standings: List[Standing],
@@ -51,14 +60,7 @@ class OrderNormalizer:
                 position += 1
                 continue
 
-            rank = f"{position}th Place"
-            if position == 1:
-                rank = "1st Place"
-            elif position == 2:
-                rank = "2nd Place"
-            elif position == 3:
-                rank = "3rd Place"
-
+            rank = OrderNormalizer.format_place(position)
             position += 1
 
             if update_result:
