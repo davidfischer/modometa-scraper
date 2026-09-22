@@ -505,14 +505,7 @@ class MTGOClient:
                 if winloss and player_id in winloss:
                     result = winloss[player_id]
                 else:
-                    if rank == 1:
-                        result = "1st Place"
-                    elif rank == 2:
-                        result = "2nd Place"
-                    elif rank == 3:
-                        result = "3rd Place"
-                    else:
-                        result = f"{rank}th Place"
+                    result = OrderNormalizer.format_place(rank)
                     rank += 1
 
             deck = Deck(

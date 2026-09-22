@@ -80,3 +80,31 @@ def test_order_normalizer_playoff_bracket():
 
     assert reordered[1].player == "Bob"
     assert reordered[1].result == "2nd Place"
+
+
+def test_order_normalizer_format_place():
+    test_cases = {
+        1: "1st Place",
+        2: "2nd Place",
+        3: "3rd Place",
+        4: "4th Place",
+        11: "11th Place",
+        12: "12th Place",
+        13: "13th Place",
+        14: "14th Place",
+        21: "21st Place",
+        22: "22nd Place",
+        23: "23rd Place",
+        31: "31st Place",
+        32: "32nd Place",
+        33: "33rd Place",
+        40: "40th Place",
+        101: "101st Place",
+        111: "111th Place",
+        112: "112th Place",
+        113: "113th Place",
+        122: "122nd Place",
+        133: "133rd Place",
+    }
+    for rank, expected in test_cases.items():
+        assert OrderNormalizer.format_place(rank) == expected
